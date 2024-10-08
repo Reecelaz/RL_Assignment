@@ -1,6 +1,6 @@
 # # # # # # # # # # # # # # #
-# Reece Lazarus:2345362     #
-# Kaylyn Karuppen:2465081   #
+# Reece Lazarus:    2345362 #
+# Kaylyn Karuppen:  2465081 #
 # # # # # # # # # # # # # # #
 
 import gymnasium as gym
@@ -13,6 +13,8 @@ from grid2op.Observation import CompleteObservation
 from grid2op.Reward import L2RPNReward, N1Reward, CombinedScaledReward
 
 from lightsim2grid import LightSimBackend
+
+from stable_baselines3 import PPO
 
 
 # Gymnasium environment wrapper around Grid2Op environment
@@ -86,9 +88,6 @@ class Gym2OpEnv(gym.Env):
 
 
 def main():
-    # Random agent interacting in environment #
-
-    max_steps = 100
 
     env = Gym2OpEnv()
 
@@ -104,44 +103,65 @@ def main():
     print(env.action_space)
     print("#####################\n\n")
 
-    curr_step = 0
-    curr_return = 0
+    # PPO 
 
-    is_done = False
-    obs, info = env.reset()
-    print(f"step = {curr_step} (reset):")
-    print(f"\t obs = {obs}")
-    print(f"\t info = {info}\n\n")
+    # Initialize the PPO model
+    model = PPO("MlpPolicy", env, verbose=1)
 
-    while not is_done and curr_step < max_steps:
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
+    # Train the model
+    model.learn(total_timesteps=10000)
 
-        curr_step += 1
-        curr_return += reward
-        is_done = terminated or truncated
+    # Test the trained model
+    obs = env.reset()
+    for _ in range(1000):
+        action, _states = model.predict(obs)
+        obs, reward, done, info = env.step(action)
+        env.render()
+        if done:
+            obs = env.reset()
 
-        print(f"step = {curr_step}: ")
-        print(f"\t obs = {obs}")
-        print(f"\t reward = {reward}")
-        print(f"\t terminated = {terminated}")
-        print(f"\t truncated = {truncated}")
-        print(f"\t info = {info}")
+    # Random agent interacting in environment #
 
-        # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
-        # Invalid actions are replaced with 'do nothing' action
-        is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
-        print(f"\t is action valid = {is_action_valid}")
-        if not is_action_valid:
-            print(f"\t\t reason = {info['exception']}")
-        print("\n")
+    # max_steps = 100
 
-    print("###########")
-    print("# SUMMARY #")
-    print("###########")
-    print(f"return = {curr_return}")
-    print(f"total steps = {curr_step}")
-    print("###########")
+    # curr_step = 0
+    # curr_return = 0
+
+    # is_done = False
+    # obs, info = env.reset()
+    # print(f"step = {curr_step} (reset):")
+    # print(f"\t obs = {obs}")
+    # print(f"\t info = {info}\n\n")
+
+    # while not is_done and curr_step < max_steps:
+    #     action = env.action_space.sample()
+    #     obs, reward, terminated, truncated, info = env.step(action)
+
+    #     curr_step += 1
+    #     curr_return += reward
+    #     is_done = terminated or truncated
+
+    #     print(f"step = {curr_step}: ")
+    #     print(f"\t obs = {obs}")
+    #     print(f"\t reward = {reward}")
+    #     print(f"\t terminated = {terminated}")
+    #     print(f"\t truncated = {truncated}")
+    #     print(f"\t info = {info}")
+
+    #     # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
+    #     # Invalid actions are replaced with 'do nothing' action
+    #     is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
+    #     print(f"\t is action valid = {is_action_valid}")
+    #     if not is_action_valid:
+    #         print(f"\t\t reason = {info['exception']}")
+    #     print("\n")
+
+    # print("###########")
+    # print("# SUMMARY #")
+    # print("###########")
+    # print(f"return = {curr_return}")
+    # print(f"total steps = {curr_step}")
+    # print("###########")
 
 
 if __name__ == "__main__":
