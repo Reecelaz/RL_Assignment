@@ -4,6 +4,7 @@
 # # # # # # # # # # # # # # #
 
 import gymnasium as gym
+from gym.spaces import Box, Dict, MultiBinary
 
 import grid2op
 from grid2op import gym_compat
@@ -70,17 +71,56 @@ class Gym2OpEnv(gym.Env):
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
         print("WARNING: setup_observations is not doing anything. Implement your own code in this method.")
 
+    def flatten_space_custom(self, space):
+        if isinstance(space, MultiBinary):
+            return np.zeros(space.n, dtype=int)  # Initialize a zero array for MultiBinary
+        elif isinstance(space, Box):
+            return np.zeros(space.shape, dtype=space.dtype)  # Initialize a zero array for Box
+        elif isinstance(space, Dict):
+            # For Dict, flatten each component and return as a concatenated array
+            flat = []
+            for key, subspace in space.spaces.items():
+                flat.append(self.flatten_space_custom(subspace))  # Recursively flatten subspaces
+            return np.concatenate(flat)
+        else:
+            raise NotImplementedError(f"Unknown space type: {type(space)}")
+
+
     def setup_actions(self):
         # TODO: Your code to specify & modify the action space goes here
         # See Grid2Op 'getting started' notebooks for guidance
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
-        print("WARNING: setup_actions is not doing anything. Implement your own code in this method.")
+
+        # Flatten each space inside the Dict action space
+         # Prepare to flatten the action space
+        # Prepare to flatten the action space
+        flat_action_spaces = []
+    
+        # Iterate through each space in the action space
+        for key, space in self._gym_env.action_space.spaces.items():
+            flat_action_space = self.flatten_space_custom(space)
+            flat_action_spaces.append(flat_action_space)
+
+        # Create a single Box action space that is the combination of all flattened spaces
+        low = np.concatenate([space.low.flatten() for space in flat_action_spaces if isinstance(space, Box)])
+        high = np.concatenate([space.high.flatten() for space in flat_action_spaces if isinstance(space, Box)])
+
+        # For MultiBinary, concatenate zeros and ones as needed
+        for space in flat_action_spaces:
+            if isinstance(space, MultiBinary):
+                low = np.concatenate([low, np.zeros(space.n, dtype=int)])
+                high = np.concatenate([high, np.ones(space.n, dtype=int)])
+
+        # Create the Box action space with combined bounds
+        self.action_space = Box(low=low, high=high)
 
     def reset(self, seed=None):
         return self._gym_env.reset(seed=seed, options=None)
 
     def step(self, action):
-        return self._gym_env.step(action)
+        unflattened_action = self._gym_env.action_space.unflatten(action)
+        return self._gym_env.step(unflattened_action)
+        #return self._gym_env.step(action)
 
     def render(self):
         # TODO: Modify for your own required usage
@@ -103,7 +143,10 @@ def main():
     print(env.action_space)
     print("#####################\n\n")
 
-    # PPO 
+    flat_action_space = self.flatten_space_custom(env.action_space)
+    print("flattened space: ", flat_action_space)
+
+    # PPO Algorithm
 
     # Initialize the PPO model
     model = PPO("MlpPolicy", env, verbose=1)
@@ -121,48 +164,48 @@ def main():
             obs = env.reset()
 
     # Random agent interacting in environment #
+    '''
+    max_steps = 100
 
-    # max_steps = 100
+    curr_step = 0
+    curr_return = 0
 
-    # curr_step = 0
-    # curr_return = 0
+    is_done = False
+    obs, info = env.reset()
+    print(f"step = {curr_step} (reset):")
+    print(f"\t obs = {obs}")
+    print(f"\t info = {info}\n\n")
 
-    # is_done = False
-    # obs, info = env.reset()
-    # print(f"step = {curr_step} (reset):")
-    # print(f"\t obs = {obs}")
-    # print(f"\t info = {info}\n\n")
+    while not is_done and curr_step < max_steps:
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
 
-    # while not is_done and curr_step < max_steps:
-    #     action = env.action_space.sample()
-    #     obs, reward, terminated, truncated, info = env.step(action)
+        curr_step += 1
+        curr_return += reward
+        is_done = terminated or truncated
 
-    #     curr_step += 1
-    #     curr_return += reward
-    #     is_done = terminated or truncated
+        print(f"step = {curr_step}: ")
+        print(f"\t obs = {obs}")
+        print(f"\t reward = {reward}")
+        print(f"\t terminated = {terminated}")
+        print(f"\t truncated = {truncated}")
+        print(f"\t info = {info}")
 
-    #     print(f"step = {curr_step}: ")
-    #     print(f"\t obs = {obs}")
-    #     print(f"\t reward = {reward}")
-    #     print(f"\t terminated = {terminated}")
-    #     print(f"\t truncated = {truncated}")
-    #     print(f"\t info = {info}")
+        # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
+        # Invalid actions are replaced with 'do nothing' action
+        is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
+        print(f"\t is action valid = {is_action_valid}")
+        if not is_action_valid:
+            print(f"\t\t reason = {info['exception']}")
+        print("\n")
 
-    #     # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
-    #     # Invalid actions are replaced with 'do nothing' action
-    #     is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
-    #     print(f"\t is action valid = {is_action_valid}")
-    #     if not is_action_valid:
-    #         print(f"\t\t reason = {info['exception']}")
-    #     print("\n")
-
-    # print("###########")
-    # print("# SUMMARY #")
-    # print("###########")
-    # print(f"return = {curr_return}")
-    # print(f"total steps = {curr_step}")
-    # print("###########")
-
+    print("###########")
+    print("# SUMMARY #")
+    print("###########")
+    print(f"return = {curr_return}")
+    print(f"total steps = {curr_step}")
+    print("###########")
+    '''
 
 if __name__ == "__main__":
     main()
