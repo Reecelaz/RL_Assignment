@@ -16,6 +16,8 @@ from grid2op.Reward import L2RPNReward, N1Reward, CombinedScaledReward
 from lightsim2grid import LightSimBackend
 
 from stable_baselines3 import PPO
+import numpy as np
+from gymnasium import spaces
 
 
 # Gymnasium environment wrapper around Grid2Op environment
@@ -61,9 +63,23 @@ class Gym2OpEnv(gym.Env):
 
         self.setup_observations()
         self.setup_actions()
+        
+        # Define the original action space
+        self.action_space = spaces.Dict({
+            'change_bus': spaces.MultiBinary(57),
+            'change_line_status': spaces.MultiBinary(20),
+            'curtail': spaces.Box(low=np.array([-1., -1., 0., 0., 0., -1.]), high=np.array([1., 1., 1., 1., 1., -1.]), dtype=np.float32),
+            'redispatch': spaces.Box(low=np.array([-5., -10., 0., 0., 0., -15.]), high=np.array([5., 10., 0., 0., 0., 15.]), dtype=np.float32),
+            'set_bus': spaces.Box(low=-1, high=2, shape=(57,), dtype=np.int32),
+            'set_line_status': spaces.Box(low=-1, high=1, shape=(20,), dtype=np.int32)
+        })
 
         self.observation_space = self._gym_env.observation_space
-        self.action_space = self._gym_env.action_space
+        #self.action_space = self._gym_env.action_space
+
+        # Flattened action space
+        self.action_space = self.flatten_action_space(self.action_space)
+
 
     def setup_observations(self):
         # TODO: Your code to specify & modify the observation space goes here
@@ -71,19 +87,19 @@ class Gym2OpEnv(gym.Env):
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
         print("WARNING: setup_observations is not doing anything. Implement your own code in this method.")
 
-    def flatten_space_custom(self, space):
-        if isinstance(space, MultiBinary):
-            return np.zeros(space.n, dtype=int)  # Initialize a zero array for MultiBinary
-        elif isinstance(space, Box):
-            return np.zeros(space.shape, dtype=space.dtype)  # Initialize a zero array for Box
-        elif isinstance(space, Dict):
-            # For Dict, flatten each component and return as a concatenated array
-            flat = []
-            for key, subspace in space.spaces.items():
-                flat.append(self.flatten_space_custom(subspace))  # Recursively flatten subspaces
-            return np.concatenate(flat)
-        else:
-            raise NotImplementedError(f"Unknown space type: {type(space)}")
+    def flatten_action_space(self, action_space):
+        action_low = []
+        action_high = []
+
+        for space in action_space.spaces.values():
+            if isinstance(space, spaces.MultiBinary):
+                action_low.append(np.zeros(space.n))
+                action_high.append(np.ones(space.n))
+            else:
+                action_low.append(space.low.flatten())
+                action_high.append(space.high.flatten())
+
+        return spaces.Box(low=np.concatenate(action_low), high=np.concatenate(action_high), dtype=np.float32)
 
 
     def setup_actions(self):
@@ -98,7 +114,7 @@ class Gym2OpEnv(gym.Env):
     
         # Iterate through each space in the action space
         for key, space in self._gym_env.action_space.spaces.items():
-            flat_action_space = self.flatten_space_custom(space)
+            flat_action_space = self.flatten_action_space(space)
             flat_action_spaces.append(flat_action_space)
 
         # Create a single Box action space that is the combination of all flattened spaces
@@ -142,9 +158,6 @@ def main():
     print("#####################")
     print(env.action_space)
     print("#####################\n\n")
-
-    flat_action_space = self.flatten_space_custom(env.action_space)
-    print("flattened space: ", flat_action_space)
 
     # PPO Algorithm
 
