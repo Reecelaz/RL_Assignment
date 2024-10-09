@@ -108,7 +108,8 @@ class Gym2OpEnv(gym.Env):
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
 
         # Flatten each space inside the Dict action space
-         # Prepare to flatten the action space
+        # Prepare to flatten the action space
+        '''
         # Prepare to flatten the action space
         flat_action_spaces = []
     
@@ -129,14 +130,13 @@ class Gym2OpEnv(gym.Env):
 
         # Create the Box action space with combined bounds
         self.action_space = Box(low=low, high=high)
+        '''
 
     def reset(self, seed=None):
         return self._gym_env.reset(seed=seed, options=None)
 
     def step(self, action):
-        unflattened_action = self._gym_env.action_space.unflatten(action)
-        return self._gym_env.step(unflattened_action)
-        #return self._gym_env.step(action)
+        return self._gym_env.step(action)
 
     def render(self):
         # TODO: Modify for your own required usage
@@ -162,7 +162,8 @@ def main():
     # PPO Algorithm
 
     # Initialize the PPO model
-    model = PPO("MlpPolicy", env, verbose=1)
+    model = PPO("MultiInputPolicy", env, verbose=1)
+    #model = PPO("MlpPolicy", env, verbose=1)
 
     # Train the model
     model.learn(total_timesteps=10000)
