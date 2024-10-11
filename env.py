@@ -63,22 +63,9 @@ class Gym2OpEnv(gym.Env):
 
         self.setup_observations()
         self.setup_actions()
-        
-        # Define the original action space
-        self.action_space = spaces.Dict({
-            'change_bus': spaces.MultiBinary(57),
-            'change_line_status': spaces.MultiBinary(20),
-            'curtail': spaces.Box(low=np.array([-1., -1., 0., 0., 0., -1.]), high=np.array([1., 1., 1., 1., 1., -1.]), dtype=np.float32),
-            'redispatch': spaces.Box(low=np.array([-5., -10., 0., 0., 0., -15.]), high=np.array([5., 10., 0., 0., 0., 15.]), dtype=np.float32),
-            'set_bus': spaces.Box(low=-1, high=2, shape=(57,), dtype=np.int32),
-            'set_line_status': spaces.Box(low=-1, high=1, shape=(20,), dtype=np.int32)
-        })
 
+        self.action_space = self._gym_env.action_space
         self.observation_space = self._gym_env.observation_space
-        #self.action_space = self._gym_env.action_space
-
-        # Flattened action space
-        self.action_space = self.flatten_action_space(self.action_space)
 
 
     def setup_observations(self):
@@ -87,49 +74,59 @@ class Gym2OpEnv(gym.Env):
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
         print("WARNING: setup_observations is not doing anything. Implement your own code in this method.")
 
-    def flatten_action_space(self, action_space):
-        action_low = []
-        action_high = []
-
-        for space in action_space.spaces.values():
-            if isinstance(space, spaces.MultiBinary):
-                action_low.append(np.zeros(space.n))
-                action_high.append(np.ones(space.n))
-            else:
-                action_low.append(space.low.flatten())
-                action_high.append(space.high.flatten())
-
-        return spaces.Box(low=np.concatenate(action_low), high=np.concatenate(action_high), dtype=np.float32)
-
 
     def setup_actions(self):
         # TODO: Your code to specify & modify the action space goes here
         # See Grid2Op 'getting started' notebooks for guidance
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
 
-        # Flatten each space inside the Dict action space
-        # Prepare to flatten the action space
+        print("ORIGINAL Action Space:")
+        print(self._gym_env.action_space)
+
+        # Ignore specific attributes like 'set_bus' and 'set_line_status'
+        self._gym_env.action_space = self._gym_env.action_space.ignore_attr("set_bus").ignore_attr("set_line_status")
+
+        # Retrieve action components from the Grid2Op action space
+        action_components = self._g2op_env.action_space
+
+        # Check if redispatch and curtail exist and discretize them
+        # Redispatch
+        if hasattr(action_components, 'redispatch'):
+            redispatch_low = action_components.redispatch_space.low
+            redispatch_high = action_components.redispatch_space.high
+            redispatch_bins = np.linspace(redispatch_low, redispatch_high, 30)  # 30 discrete bins for redispatch
+
+            # You can replace the redispatch component in the action space here if necessary
+
+        # Curtail
+        if hasattr(action_components, 'curtail'):
+            curtail_low = action_components.curtail_space.low
+            curtail_high = action_components.curtail_space.high
+            curtail_bins = np.linspace(curtail_low, curtail_high, 3)  # 3 discrete bins for curtail
+
+            # You can replace the curtail component in the action space here if necessary
+
+        # Use DiscreteActSpace for your modified action space
+        self._gym_env.action_space = gym_compat.DiscreteActSpace(self._g2op_env.action_space)
+
+        # After modifying, print the new action space
+        print("MODIFIED Action Space:")
+        print(self._gym_env.action_space)
+
         '''
-        # Prepare to flatten the action space
-        flat_action_spaces = []
-    
-        # Iterate through each space in the action space
-        for key, space in self._gym_env.action_space.spaces.items():
-            flat_action_space = self.flatten_action_space(space)
-            flat_action_spaces.append(flat_action_space)
+        print("ORIGINAL Action Space:")
+        print(self._gym_env.action_space)
 
-        # Create a single Box action space that is the combination of all flattened spaces
-        low = np.concatenate([space.low.flatten() for space in flat_action_spaces if isinstance(space, Box)])
-        high = np.concatenate([space.high.flatten() for space in flat_action_spaces if isinstance(space, Box)])
+        self._gym_env.action_space =  self._gym_env.action_space.ignore_attr("set_bus").ignore_attr("set_line_status")
 
-        # For MultiBinary, concatenate zeros and ones as needed
-        for space in flat_action_spaces:
-            if isinstance(space, MultiBinary):
-                low = np.concatenate([low, np.zeros(space.n, dtype=int)])
-                high = np.concatenate([high, np.ones(space.n, dtype=int)])
+        self._gym_env.action_space =  self._gym_env.action_space.reencode_space("redispatch", gym_compat.ContinuousToDiscreteConverter(nb_bins=30))
 
-        # Create the Box action space with combined bounds
-        self.action_space = Box(low=low, high=high)
+        self._gym_env.action_space =  self._gym_env.action_space.reencode_space("curtail", gym_compat.ContinuousToDiscreteConverter(nb_bins=3))
+
+        self._gym_env.action_space = gym_compat.DiscreteActSpace(self._gym_env.action_space)
+
+        print("MODIFIED Action Space:")
+        print(self._gym_env.action_space)
         '''
 
     def reset(self, seed=None):
@@ -165,12 +162,15 @@ def main():
     model = PPO("MultiInputPolicy", env, verbose=1)
     #model = PPO("MlpPolicy", env, verbose=1)
 
+    print("Training")
     # Train the model
-    model.learn(total_timesteps=10000)
+    model.learn(total_timesteps=2)
 
+    #env = model.get_env()
     # Test the trained model
     obs = env.reset()
-    for _ in range(1000):
+    for i in range(2):
+        print("This loop iteration: ", i)
         action, _states = model.predict(obs)
         obs, reward, done, info = env.step(action)
         env.render()
