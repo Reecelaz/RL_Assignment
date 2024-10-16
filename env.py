@@ -156,7 +156,7 @@ def main():
     print(env.action_space)
     print("#####################\n\n")
 
-    # PPO Algorithm
+    # PPO Algorithm #
 
     # Initialize the PPO model
     model = PPO("MultiInputPolicy", env, verbose=1)
