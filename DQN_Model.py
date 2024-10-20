@@ -180,8 +180,8 @@ def main():
 
             if is_done:
                 rewards_per_episode.append(curr_return)
-                if(curr_step % 10 == 0):
-                    print("Current Step: ", curr_step)
+                if(i % 10 == 0):
+                    print("Current Episode: ", i)
                 break
 
             #env.render()
