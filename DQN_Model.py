@@ -15,6 +15,7 @@ from grid2op.Reward import L2RPNReward, N1Reward, CombinedScaledReward
 
 from lightsim2grid import LightSimBackend
 
+from matplotlib import pyplot as plt
 from stable_baselines3 import DQN
 import numpy as np
 from gymnasium import spaces
@@ -157,30 +158,48 @@ def main():
     model.save("dqn_model")
     '''    
 
-    model = DQN.load("dqn_model", env=env)
+    episodes = 100
+    rewards_per_episode = []
 
-    env = model.get_env()
+    for i in range(episodes):
+        model = DQN.load("dqn_model", env=env)
+        env = model.get_env()
 
-    max_steps = 10000
+        curr_step = 0
+        curr_return = 0
+        is_done = False
 
-    curr_step = 0
-    curr_return = 0
-    is_done = False
+        # Test the trained model
+        obs = env.reset()
+        while not is_done:
+            action, _states = model.predict(obs)
+            obs, reward, is_done, info = env.step(action)
 
-    # Test the trained model
-    obs = env.reset()
-    while not is_done and curr_step < max_steps:
-        action, _states = model.predict(obs)
-        obs, reward, is_done, info = env.step(action)
+            curr_step += 1
+            curr_return += reward
 
-        curr_step += 1
-        curr_return += reward
+            if is_done:
+                rewards_per_episode.append(curr_return)
+                if(curr_step % 10 == 0):
+                    print("Current Step: ", curr_step)
+                break
 
-        #env.render()
-        '''
-        if is_done:
-            obs = env.reset()
-        '''
+            #env.render()
+            '''
+            if is_done:
+                obs = env.reset()
+            '''
+
+    # Plotting the average return per episode
+    plt.plot(range(episodes), rewards_per_episode, label='Average Return')  # Correcting plot arguments
+    plt.title('DQN Average Return per Episode')
+    plt.xlabel('Episodes')
+    plt.ylabel('Average Return')
+    plt.legend()  
+    plt.grid(True)  
+    plt.savefig('dqn_return.png')
+    plt.show()  
+
     print("###########")
     print("# SUMMARY #")
     print("###########")

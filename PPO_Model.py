@@ -158,7 +158,7 @@ def main():
     model.save("ppo_model")
     '''
 
-    episodes = 10000
+    episodes = 100
     rewards_per_episode = []
 
     for i in range(episodes):
@@ -196,10 +196,10 @@ def main():
     plt.title('PPO Average Return per Episode')
     plt.xlabel('Episodes')
     plt.ylabel('Average Return')
-    plt.legend()  # Optional: Only if label is provided
-    plt.grid(True)  # Optional: Adds a grid for better readability
+    plt.legend()  
+    plt.grid(True)  
     plt.savefig('ppo_return.png')
-    plt.show()  # Optional: To display the plot in interactive environments
+    plt.show() 
 
 
 
