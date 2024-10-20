@@ -148,16 +148,16 @@ def main():
     model = PPO("MultiInputPolicy", env, verbose=1)
 
     obs = env.reset()
-
     '''
+    total_timesteps = 100
+    
     print("Training")
     # Train the model
     with tf.device('/device:GPU:1'):
-        model.learn(total_timesteps=2)
+        model.learn(total_timesteps=total_timesteps)
 
     model.save("ppo_model")
     '''
-
     episodes = 100
     rewards_per_episode = []
 

@@ -148,16 +148,16 @@ def main():
     model = DQN("MultiInputPolicy", env, verbose=1)
 
     obs = env.reset()
-
     '''
+    total_timesteps = 100
+
     print("Training")
     # Train the model
     with tf.device('/device:GPU:1'):
         model.learn(total_timesteps=2)
 
-    model.save("dqn_model")
-    '''    
-
+    model.save("dqn_model")    
+    '''
     episodes = 100
     rewards_per_episode = []
 
@@ -195,7 +195,7 @@ def main():
     plt.title('DQN Average Return per Episode')
     plt.xlabel('Episodes')
     plt.ylabel('Average Return')
-    plt.legend()  
+    plt.legend()
     plt.grid(True)  
     plt.savefig('dqn_return.png')
     plt.show()  
