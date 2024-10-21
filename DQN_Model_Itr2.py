@@ -22,6 +22,9 @@ from gymnasium import spaces
 
 import tensorflow as tf
 
+from collections import OrderedDict
+from gymnasium.spaces import Box, Dict
+
 # Gymnasium environment wrapper around Grid2Op environment
 class Gym2OpEnv(gym.Env):
     def __init__(
@@ -71,8 +74,39 @@ class Gym2OpEnv(gym.Env):
 
 
     def setup_observations(self):
-        # None required. All observation space formatting handled through saving of trained model and reloading.
-        return
+        obs = self._gym_env.observation_space
+        
+        load_p = obs['load_p']  # Load active power
+        load_q = obs['load_q']
+        load_theta = obs['load_theta']
+        load_v = obs['load_v']
+
+        gen_p = obs['gen_p']  # Generator active power
+        gen_q = obs['gen_q']  # Reactive power
+        gen_theta = obs['gen_theta']  # Voltage angle
+        gen_v = obs['gen_v']
+
+        timestep_overflow = obs['timestep_overflow']
+
+        p_or = obs['p_or']
+        q_or = obs['q_or']
+        v_or = obs['v_or'] 
+        a_or = obs['a_or']
+        theta_or = obs['theta_or']
+
+        p_ex = obs['p_ex']
+        q_ex = obs['q_ex']
+        v_ex = obs['v_ex'] 
+        a_ex = obs['a_ex']
+        theta_ex = obs['theta_ex']
+
+        keys_to_keep = ["load_p", "load_q"]
+
+        filtered_observation_space = OrderedDict([(key, obs.spaces[key])
+            for key in keys_to_keep if key in obs.spaces])
+
+
+        self._gym_env.observation_space = filtered_observation_space
         
 
     def setup_actions(self):
@@ -136,31 +170,76 @@ class Gym2OpEnv(gym.Env):
         # Concatenate all generator-related observations into one array
         gen = np.concatenate([gen_p, gen_q, gen_theta, gen_v], axis=0)
 
-        # Example reward shaping based on generator output and load
-        # Penalize if generator output is too low or too high
+        ##############################
+        # Normalized Generator Penalty
+        ##############################
+        max_gen_output = 85  # Assume max generator output is 100 MW
         gen_penalty = 0
         for gen_output in gen.flatten():
             if gen_output < 0:
-                gen_penalty -= gen_output
-            elif gen_output < 10:  # Example threshold for low generator power
-                gen_penalty -= 5
-            elif gen_output > 70:  # Example threshold for too high generator power
-                gen_penalty -= 2
+                gen_penalty -= 1  # Normalize based on max output
+            elif gen_output < 10:  # Low power penalty
+                gen_penalty -= 0.5  # Small fixed penalty
+            elif gen_output > 70:  # High power penalty
+                gen_penalty -= 1  # Small fixed penalty
 
-        # Reward for maintaining load balance (example)
+        ##############################
+        # Normalized Load Balance Reward
+        ##############################
+        max_load_diff = 145  # Assume the maximum load difference is 1000 MW
         load_balance_reward = 0
         load_diff = np.abs(load.sum() - gen.sum())
         if load_diff < 200:  # Reward if generation closely matches the load
-            load_balance_reward += 100
+            load_balance_reward += 2  # Normalize reward to 1
         else:
-            load_balance_reward -= 0.25 * load_diff  # Penalize based on load imbalance
+            load_balance_reward -= 1  # Normalize penalty
 
-        # Add your custom reward shaping logic to the original reward
-        shaped_reward = reward + gen_penalty + load_balance_reward
+        ##############################
+        # Normalized Overflow Penalty
+        ##############################
+        max_overflow_penalty = 20  # Max overflow penalty for each line
+        overflow_penalty = 0
+        timestep_overflow = obs['timestep_overflow']
+        for overflow in timestep_overflow.flatten():
+            if overflow > 0:
+                overflow_penalty -= 1  # Normalize by the number of lines
+            else:
+                overflow_penalty += 2 
+
+        ##############################
+        # Normalized Origin-Extremity Balance Reward
+        ##############################
+        p_or = obs['p_or']
+        q_or = obs['q_or']
+        v_or = obs['v_or'] 
+        a_or = obs['a_or']
+        theta_or = obs['theta_or']
+
+        origin = np.concatenate([p_or, q_or, v_or, a_or, theta_or], axis=0)
+
+        p_ex = obs['p_ex']
+        q_ex = obs['q_ex']
+        v_ex = obs['v_ex'] 
+        a_ex = obs['a_ex']
+        theta_ex = obs['theta_ex']
+
+        extremity = np.concatenate([p_ex, q_ex, v_ex, a_ex, theta_ex], axis=0)
+
+        or_ex_balance_reward = 0
+        or_ex_diff = np.abs(origin.sum() - extremity.sum())
+        if or_ex_diff < 10:  # Reward if the balance is maintained
+            or_ex_balance_reward += 2.0  # Normalized reward for balance
+        else:
+            or_ex_balance_reward -= 1
+
+        ##############################
+        # Combined Reward
+        ##############################
+        # Sum the original reward with the shaped, normalized rewards
+        shaped_reward = reward + gen_penalty + load_balance_reward + overflow_penalty + or_ex_balance_reward
 
         # Return the new values (including truncated)
         return obs, shaped_reward, terminated, truncated, info
-        #return self._gym_env.step(action)
 
     def render(self):
         # TODO: Modify for your own required usage
@@ -205,6 +284,7 @@ def main():
     
     episodes = 100
     rewards_per_episode = []
+    steps_per_episode = []
 
     for i in range(episodes):
         model = DQN.load("dqn_model", env=env)
@@ -225,6 +305,7 @@ def main():
 
             if is_done:
                 rewards_per_episode.append(curr_return)
+                steps_per_episode.append(curr_step)
                 if(i % 10 == 0):
                     print("Current Episode: ", i)
                 break
@@ -243,6 +324,16 @@ def main():
     plt.legend()
     plt.grid(True)  
     plt.savefig('dqn_return.png')
+    plt.show()
+
+     # Plotting the average steps per episode
+    plt.plot(range(episodes), steps_per_episode, label='Average Steps')  # Correcting plot arguments
+    plt.title('DQN Average Steps per Episode')
+    plt.xlabel('Episodes')
+    plt.ylabel('Average Steps')
+    plt.legend()
+    plt.grid(True)  
+    plt.savefig('dqn_steps.png')
     plt.show()  
 
     print("###########")
