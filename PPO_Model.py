@@ -117,7 +117,50 @@ class Gym2OpEnv(gym.Env):
         return self._gym_env.reset(seed=seed, options=None)
 
     def step(self, action):
-        return self._gym_env.step(action)
+        # Step in the original environment
+        obs, reward, terminated, truncated, info = self._gym_env.step(action)
+
+        # Extract observation fields (based on your observation format)
+        load_p = obs['load_p']  # Load active power
+        load_q = obs['load_q']
+        load_theta = obs['load_theta']
+        load_v = obs['load_v']
+
+        load = np.concatenate([load_p, load_q, load_theta, load_v], axis=0)
+        # Extract generator features and concatenate them properly
+        gen_p = obs['gen_p']  # Generator active power
+        gen_q = obs['gen_q']  # Reactive power
+        gen_theta = obs['gen_theta']  # Voltage angle
+        gen_v = obs['gen_v']  # Voltage magnitude
+
+        # Concatenate all generator-related observations into one array
+        gen = np.concatenate([gen_p, gen_q, gen_theta, gen_v], axis=0)
+
+        # Example reward shaping based on generator output and load
+        # Penalize if generator output is too low or too high
+        gen_penalty = 0
+        for gen_output in gen.flatten():
+            if gen_output < 0:
+                gen_penalty -= gen_output
+            elif gen_output < 10:  # Example threshold for low generator power
+                gen_penalty -= 5
+            elif gen_output > 70:  # Example threshold for too high generator power
+                gen_penalty -= 2
+
+        # Reward for maintaining load balance (example)
+        load_balance_reward = 0
+        load_diff = np.abs(load.sum() - gen.sum())
+        if load_diff < 10:  # Reward if generation closely matches the load
+            load_balance_reward += 20000
+        else:
+            load_balance_reward -= load_diff  # Penalize based on load imbalance
+
+        # Add your custom reward shaping logic to the original reward
+        shaped_reward = reward + gen_penalty + load_balance_reward
+
+        # Return the new values (including truncated)
+        return obs, shaped_reward, terminated, truncated, info
+        #return self._gym_env.step(action)
 
     def render(self):
         # TODO: Modify for your own required usage
@@ -145,11 +188,11 @@ def main():
     # PPO Algorithm #
 
     # Initialize the PPO model
-    model = PPO("MultiInputPolicy", env, verbose=1)
+    model = PPO("MultiInputPolicy", env, verbose=0)
 
     obs = env.reset()
-    '''
-    total_timesteps = 100
+    
+    total_timesteps = 300
     
     print("Training")
     # Train the model
@@ -157,7 +200,7 @@ def main():
         model.learn(total_timesteps=total_timesteps)
 
     model.save("ppo_model")
-    '''
+    
     episodes = 100
     rewards_per_episode = []
 
