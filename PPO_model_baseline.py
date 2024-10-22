@@ -80,38 +80,23 @@ class Gym2OpEnv(gym.Env):
         # See Grid2Op 'getting started' notebooks for guidance
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
 
-        print("ORIGINAL Action Space:")
-        print(self._gym_env.action_space)
-
-        # Ignore specific attributes like 'set_bus' and 'set_line_status'
+        # Ignore actions 'set_bus' and 'set_line_status' as they can be manipulated by the 'change' action variables
         self._gym_env.action_space = self._gym_env.action_space.ignore_attr("set_bus").ignore_attr("set_line_status")
 
-        # Retrieve action components from the Grid2Op action space
         action_components = self._g2op_env.action_space
 
-        # Check if redispatch and curtail exist and discretize them
-        # Redispatch
+        # For the continuous variable actions 'redispatch' and 'curtail', discretise them into bins for use by stable_baselines3 training algorithms
         if hasattr(action_components, 'redispatch'):
             redispatch_low = action_components.redispatch_space.low
             redispatch_high = action_components.redispatch_space.high
-            redispatch_bins = np.linspace(redispatch_low, redispatch_high, 30)  # 30 discrete bins for redispatch
+            redispatch_bins = np.linspace(redispatch_low, redispatch_high, 30)# Discretise into 30 bins
 
-            # You can replace the redispatch component in the action space here if necessary
-
-        # Curtail
         if hasattr(action_components, 'curtail'):
             curtail_low = action_components.curtail_space.low
             curtail_high = action_components.curtail_space.high
-            curtail_bins = np.linspace(curtail_low, curtail_high, 3)  # 3 discrete bins for curtail
+            curtail_bins = np.linspace(curtail_low, curtail_high, 3)# Discretise into 3 bins
 
-            # You can replace the curtail component in the action space here if necessary
-
-        # Use DiscreteActSpace for your modified action space
         self._gym_env.action_space = gym_compat.DiscreteActSpace(self._g2op_env.action_space)
-
-        # After modifying, print the new action space
-        print("MODIFIED Action Space:")
-        print(self._gym_env.action_space)
 
     def reset(self, seed=None):
         return self._gym_env.reset(seed=seed, options=None)
@@ -120,9 +105,7 @@ class Gym2OpEnv(gym.Env):
         return self._gym_env.step(action)
 
     def render(self):
-        # TODO: Modify for your own required usage
         return self._gym_env.render()
-
 
 def main():
 
@@ -149,34 +132,33 @@ def main():
 
     obs = env.reset()
     
-    total_timesteps = 300
+    total_timesteps = 300 # Train for this number of timesteps
     
     print("Training")
-    # Train the model
-    with tf.device('/device:GPU:1'):
+    # Train PPO model
+    with tf.device('/device:GPU:1'): # Attempt using GPU in training
         model.learn(total_timesteps=total_timesteps)
 
-    model.save("ppo_model")
+    model.save("ppo_model") # Save model
     
-    episodes = 100
+    episodes = 100 # Number of episodes model will be evaluated over
     rewards_per_episode = []
+    curr_step = 0
 
     for i in range(episodes):
         model = PPO.load("ppo_model", env=env)
         env = model.get_env()
 
-        curr_step = 0
         curr_return = 0
         is_done = False
 
-        # Test the trained model
+        # Evaluate the trained model
         obs = env.reset()
         while not is_done:
-            action, _states = model.predict(obs)
-            obs, reward, is_done, info = env.step(action)
-
-            curr_step += 1
-            curr_return += reward
+            action, _states = model.predict(obs) # Using trained model, get next action using current observation
+            obs, reward, is_done, info = env.step(action) # Take action selected and get reward
+            curr_step += 1 # Increment number of steps taken throughout all episodes
+            curr_return += reward # Add reward for current action to return for this episode
 
             if is_done:
                 rewards_per_episode.append(curr_return)
@@ -184,12 +166,7 @@ def main():
                     print("Current Episode: ", i)
                 break
 
-
             #env.render()
-            '''
-            if is_done:
-                obs = env.reset()
-            '''
 
     # Plotting the average return per episode
     plt.plot(range(episodes), rewards_per_episode, label='Average Return')  # Correcting plot arguments
@@ -198,10 +175,8 @@ def main():
     plt.ylabel('Average Return')
     plt.legend()  
     plt.grid(True)  
-    plt.savefig('ppo_return.png')
-    plt.show() 
-
-
+    plt.savefig('ppo_baseline_return.png')
+    plt.show()
 
     print("###########")
     print("# SUMMARY #")
@@ -209,50 +184,6 @@ def main():
     print(f"return = {curr_return}")
     print(f"total steps = {curr_step}")
     print("###########")
-
-    # Random agent interacting in environment #
-    '''
-    max_steps = 100
-
-    curr_step = 0
-    curr_return = 0
-
-    is_done = False
-    obs, info = env.reset()
-    print(f"step = {curr_step} (reset):")
-    print(f"\t obs = {obs}")
-    print(f"\t info = {info}\n\n")
-
-    while not is_done and curr_step < max_steps:
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-
-        curr_step += 1
-        curr_return += reward
-        is_done = terminated or truncated
-
-        print(f"step = {curr_step}: ")
-        print(f"\t obs = {obs}")
-        print(f"\t reward = {reward}")
-        print(f"\t terminated = {terminated}")
-        print(f"\t truncated = {truncated}")
-        print(f"\t info = {info}")
-
-        # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
-        # Invalid actions are replaced with 'do nothing' action
-        is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
-        print(f"\t is action valid = {is_action_valid}")
-        if not is_action_valid:
-            print(f"\t\t reason = {info['exception']}")
-        print("\n")
-
-    print("###########")
-    print("# SUMMARY #")
-    print("###########")
-    print(f"return = {curr_return}")
-    print(f"total steps = {curr_step}")
-    print("###########")
-    '''
 
 if __name__ == "__main__":
     main()

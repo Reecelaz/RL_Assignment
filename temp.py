@@ -71,8 +71,52 @@ class Gym2OpEnv(gym.Env):
 
 
     def setup_observations(self):
-        # None required. All observation space formatting handled through saving of trained model and reloading.
-        return
+        obs = self._gym_env.observation_space
+
+        keys_to_keep = ['load_p', 'load_q', 'load_theta', 'load_v', 'gen_p', 
+        'gen_q', 'gen_theta', 'gen_v','timestep_overflow','p_or', 'q_or', 'v_or', 'a_or', 'theta_or',
+        'p_ex', 'q_ex', 'v_ex', 'a_ex', 'theta_ex']
+
+        for key in list(obs.keys()):  # Use list() to avoid modifying the dictionary while iterating
+            if key not in keys_to_keep:
+                del obs[key]
+
+        '''
+        filtered_obs = spaces.Dict()
+        
+        load_p = obs['load_p']  # Load active power
+        load_q = obs['load_q']
+        load_theta = obs['load_theta']
+        load_v = obs['load_v']
+
+        gen_p = obs['gen_p']  # Generator active power
+        gen_q = obs['gen_q']  # Reactive power
+        gen_theta = obs['gen_theta']  # Voltage angle
+        gen_v = obs['gen_v']
+
+        timestep_overflow = obs['timestep_overflow']
+
+        p_or = obs['p_or']
+        q_or = obs['q_or']
+        v_or = obs['v_or'] 
+        a_or = obs['a_or']
+        theta_or = obs['theta_or']
+
+        p_ex = obs['p_ex']
+        q_ex = obs['q_ex']
+        v_ex = obs['v_ex'] 
+        a_ex = obs['a_ex']
+        theta_ex = obs['theta_ex']
+
+        # keys_to_keep = ["load_p", "load_q"]
+
+        # filtered_observation_space = OrderedDict([(key, obs.spaces[key])
+        #     for key in keys_to_keep if key in obs.spaces])
+
+        filtered_obs['load_p'] = obs['load_p']
+        filtered_obs['load_q'] = obs['load_q']
+        '''
+        self._gym_env.observation_space = obs
         
 
     def setup_actions(self):
@@ -80,101 +124,71 @@ class Gym2OpEnv(gym.Env):
         # See Grid2Op 'getting started' notebooks for guidance
         #  - Notebooks: https://github.com/rte-france/Grid2Op/tree/master/getting_started
 
-        print("ORIGINAL Action Space:")
-        print(self._gym_env.action_space)
-
-        # Ignore specific attributes like 'set_bus' and 'set_line_status'
+        # Ignore actions 'set_bus' and 'set_line_status' as they can be manipulated by the 'change' action variables
         self._gym_env.action_space = self._gym_env.action_space.ignore_attr("set_bus").ignore_attr("set_line_status")
 
-        # Retrieve action components from the Grid2Op action space
         action_components = self._g2op_env.action_space
 
-        # Check if redispatch and curtail exist and discretize them
-        # Redispatch
+        # For the continuous variable actions 'redispatch' and 'curtail', discretise them into bins for use by stable_baselines3 training algorithms
         if hasattr(action_components, 'redispatch'):
             redispatch_low = action_components.redispatch_space.low
             redispatch_high = action_components.redispatch_space.high
-            redispatch_bins = np.linspace(redispatch_low, redispatch_high, 30)  # 30 discrete bins for redispatch
+            redispatch_bins = np.linspace(redispatch_low, redispatch_high, 30)# Discretise into 30 bins
 
-            # You can replace the redispatch component in the action space here if necessary
-
-        # Curtail
         if hasattr(action_components, 'curtail'):
             curtail_low = action_components.curtail_space.low
             curtail_high = action_components.curtail_space.high
-            curtail_bins = np.linspace(curtail_low, curtail_high, 3)  # 3 discrete bins for curtail
+            curtail_bins = np.linspace(curtail_low, curtail_high, 3)# Discretise into 3 bins
 
-            # You can replace the curtail component in the action space here if necessary
-
-        # Use DiscreteActSpace for your modified action space
         self._gym_env.action_space = gym_compat.DiscreteActSpace(self._g2op_env.action_space)
-
-        # After modifying, print the new action space
-        print("MODIFIED Action Space:")
-        print(self._gym_env.action_space)
 
     def reset(self, seed=None):
         return self._gym_env.reset(seed=seed, options=None)
 
     def step(self, action):
-        # Step in the original environment
         obs, reward, terminated, truncated, info = self._gym_env.step(action)
 
-        # Extract observation fields (based on your observation format)
-        load_p = obs['load_p']  # Load active power
+        # Get variables from observation space for reward shaping
+        load_p = obs['load_p']
         load_q = obs['load_q']
         load_theta = obs['load_theta']
         load_v = obs['load_v']
 
         load = np.concatenate([load_p, load_q, load_theta, load_v], axis=0)
-        # Extract generator features and concatenate them properly
-        gen_p = obs['gen_p']  # Generator active power
-        gen_q = obs['gen_q']  # Reactive power
-        gen_theta = obs['gen_theta']  # Voltage angle
-        gen_v = obs['gen_v']  # Voltage magnitude
 
-        # Concatenate all generator-related observations into one array
+        gen_p = obs['gen_p']
+        gen_q = obs['gen_q']
+        gen_theta = obs['gen_theta']
+        gen_v = obs['gen_v']
+
         gen = np.concatenate([gen_p, gen_q, gen_theta, gen_v], axis=0)
 
-        ##############################
-        # Normalized Generator Penalty
-        ##############################
-        max_gen_output = 85  # Assume max generator output is 100 MW
+        max_gen_output = 85  # Maximum generator output before punishing
         gen_penalty = 0
         for gen_output in gen.flatten():
             if gen_output < 0:
-                gen_penalty -= 1  # Normalize based on max output
-            elif gen_output < 10:  # Low power penalty
-                gen_penalty -= 0.5  # Small fixed penalty
-            elif gen_output > 70:  # High power penalty
-                gen_penalty -= 1  # Small fixed penalty
+                gen_penalty -= 0.1 # Negative power output penalty
+            elif gen_output < 10:  
+                gen_penalty -= 0.05  # Low power penalty
+            elif gen_output > 70:
+                gen_penalty -= 0.1  # High power penalty
 
-        ##############################
-        # Normalized Load Balance Reward
-        ##############################
-        max_load_diff = 145  # Assume the maximum load difference is 1000 MW
+        max_load_diff = 145  # Maximum difference between load and generated power before punishing
         load_balance_reward = 0
         load_diff = np.abs(load.sum() - gen.sum())
-        if load_diff < 200:  # Reward if generation closely matches the load
-            load_balance_reward += 2  # Normalize reward to 1
+        if load_diff < 200:
+            load_balance_reward += 0.4 # Reward if generation close to load
         else:
-            load_balance_reward -= 1  # Normalize penalty
+            load_balance_reward -= 0.1
 
-        ##############################
-        # Normalized Overflow Penalty
-        ##############################
-        max_overflow_penalty = 20  # Max overflow penalty for each line
         overflow_penalty = 0
         timestep_overflow = obs['timestep_overflow']
         for overflow in timestep_overflow.flatten():
             if overflow > 0:
-                overflow_penalty -= 1  # Normalize by the number of lines
+                overflow_penalty -= 0.1  # Punish for each timestep a generator is in overflow
             else:
-                overflow_penalty += 2 
+                overflow_penalty += 0.4 
 
-        ##############################
-        # Normalized Origin-Extremity Balance Reward
-        ##############################
         p_or = obs['p_or']
         q_or = obs['q_or']
         v_or = obs['v_or'] 
@@ -193,97 +207,15 @@ class Gym2OpEnv(gym.Env):
 
         or_ex_balance_reward = 0
         or_ex_diff = np.abs(origin.sum() - extremity.sum())
-        if or_ex_diff < 10:  # Reward if the balance is maintained
-            or_ex_balance_reward += 2.0  # Normalized reward for balance
+        if or_ex_diff < 10:
+            or_ex_balance_reward += 0.4 # Reward if the balance between origin and extremeties of each power line is maintained
         else:
-            or_ex_balance_reward -= 1
+            or_ex_balance_reward -= 0.1
 
-        ##############################
-        # Combined Reward
-        ##############################
-        # Sum the original reward with the shaped, normalized rewards
+        # Sum the original reward with the additional rewards for shaping
         shaped_reward = reward + gen_penalty + load_balance_reward + overflow_penalty + or_ex_balance_reward
 
-        # Return the new values (including truncated)
         return obs, shaped_reward, terminated, truncated, info
-        
-    '''
-    def step(self, action):
-        # Step in the original environment
-        obs, reward, terminated, truncated, info = self._gym_env.step(action)
-
-        # Extract observation fields (based on your observation format)
-        load_p = obs['load_p']  # Load active power
-        load_q = obs['load_q']
-        load_theta = obs['load_theta']
-        load_v = obs['load_v']
-
-        load = np.concatenate([load_p, load_q, load_theta, load_v], axis=0)
-        # Extract generator features and concatenate them properly
-        gen_p = obs['gen_p']  # Generator active power
-        gen_q = obs['gen_q']  # Reactive power
-        gen_theta = obs['gen_theta']  # Voltage angle
-        gen_v = obs['gen_v']  # Voltage magnitude
-
-        # Concatenate all generator-related observations into one array
-        gen = np.concatenate([gen_p, gen_q, gen_theta, gen_v], axis=0)
-
-        # Example reward shaping based on generator output and load
-        # Penalize if generator output is too low or too high
-        gen_penalty = 0
-        for gen_output in gen.flatten():
-            if gen_output < 0:
-                gen_penalty -= gen_output
-            elif gen_output < 10:  # Example threshold for low generator power
-                gen_penalty -= 5
-            elif gen_output > 70:  # Example threshold for too high generator power
-                gen_penalty -= 2
-
-        # Reward for maintaining load balance (example)
-        load_balance_reward = 0
-        load_diff = np.abs(load.sum() - gen.sum())
-        if load_diff < 200:  # Reward if generation closely matches the load
-            load_balance_reward += 100
-        else:
-            load_balance_reward -= 0.25 * load_diff  # Penalize based on load imbalance
-
-
-        overflow_penalty = 0
-        timestep_overflow = obs['timestep_overflow']
-        for overflow in timestep_overflow.flatten():
-            if(overflow > 0):
-                overflow_penalty -= 20
-
-        p_or = obs['p_or']
-        q_or = obs['q_or']
-        v_or = obs['v_or'] 
-        a_or = obs['a_or']
-        theta_or = obs['theta_or']
-
-        origin = np.concatenate([p_or, q_or, v_or, a_or, theta_or], axis=0)
-
-        p_ex = obs['p_ex']
-        q_ex = obs['q_ex']
-        v_ex = obs['v_ex'] 
-        a_ex = obs['a_ex']
-        theta_ex = obs['theta_ex']
-
-        extremity = np.concatenate([p_ex, q_ex, v_ex, a_ex, theta_ex], axis=0)
-
-        or_ex_balance_reward = 0
-        or_ex_diff = np.abs(origin.sum() + extremity.sum())
-        if or_ex_diff < -10 or or_ex_diff > 10:  # Reward if generation closely matches the load
-            or_ex_balance_reward -= np.abs(or_ex_diff)
-        else:
-            or_ex_balance_reward += 1.5 * np.abs(or_ex_diff)
-
-        # Add your custom reward shaping logic to the original reward
-        shaped_reward = reward + gen_penalty + load_balance_reward + overflow_penalty + or_ex_balance_reward
-
-        # Return the new values (including truncated)
-        return obs, shaped_reward, terminated, truncated, info
-        #return self._gym_env.step(action)
-        '''
 
     def render(self):
         # TODO: Modify for your own required usage
@@ -317,7 +249,7 @@ def main():
 
     obs = env.reset()
     
-    total_timesteps = 300
+    total_timesteps = 300 # Train for this number of timesteps
 
     print("Training")
     # Train the model
@@ -328,7 +260,6 @@ def main():
     
     episodes = 100
     rewards_per_episode = []
-    steps_per_episode = []
 
     for i in range(episodes):
         model = DQN.load("dqn_model", env=env)
@@ -338,27 +269,21 @@ def main():
         curr_return = 0
         is_done = False
 
-        # Test the trained model
+        # Evaluate the trained model
         obs = env.reset()
         while not is_done:
-            action, _states = model.predict(obs)
-            obs, reward, is_done, info = env.step(action)
-
-            curr_step += 1
-            curr_return += reward
+            action, _states = model.predict(obs) # Using trained model, get next action using current observation
+            obs, reward, is_done, info = env.step(action) # Take action selected and get reward
+            curr_step += 1 # Increment number of steps taken throughout all episodes
+            curr_return += reward # Add reward for current action to return for this episode
 
             if is_done:
                 rewards_per_episode.append(curr_return)
-                steps_per_episode.append(curr_step)
                 if(i % 10 == 0):
                     print("Current Episode: ", i)
                 break
 
             #env.render()
-            '''
-            if is_done:
-                obs = env.reset()
-            '''
 
     # Plotting the average return per episode
     plt.plot(range(episodes), rewards_per_episode, label='Average Return')  # Correcting plot arguments
@@ -367,17 +292,7 @@ def main():
     plt.ylabel('Average Return')
     plt.legend()
     plt.grid(True)  
-    plt.savefig('dqn_return.png')
-    plt.show()
-
-     # Plotting the average steps per episode
-    plt.plot(range(episodes), steps_per_episode, label='Average Steps')  # Correcting plot arguments
-    plt.title('DQN Average Steps per Episode')
-    plt.xlabel('Episodes')
-    plt.ylabel('Average Steps')
-    plt.legend()
-    plt.grid(True)  
-    plt.savefig('dqn_steps.png')
+    plt.savefig('dqn_baseline_return.png')
     plt.show()  
 
     print("###########")
@@ -386,50 +301,6 @@ def main():
     print(f"return = {curr_return}")
     print(f"total steps = {curr_step}")
     print("###########")
-
-    # Random agent interacting in environment #
-    '''
-    max_steps = 100
-
-    curr_step = 0
-    curr_return = 0
-
-    is_done = False
-    obs, info = env.reset()
-    print(f"step = {curr_step} (reset):")
-    print(f"\t obs = {obs}")
-    print(f"\t info = {info}\n\n")
-
-    while not is_done and curr_step < max_steps:
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-
-        curr_step += 1
-        curr_return += reward
-        is_done = terminated or truncated
-
-        print(f"step = {curr_step}: ")
-        print(f"\t obs = {obs}")
-        print(f"\t reward = {reward}")
-        print(f"\t terminated = {terminated}")
-        print(f"\t truncated = {truncated}")
-        print(f"\t info = {info}")
-
-        # Some actions are invalid (see: https://grid2op.readthedocs.io/en/latest/action.html#illegal-vs-ambiguous)
-        # Invalid actions are replaced with 'do nothing' action
-        is_action_valid = not (info["is_illegal"] or info["is_ambiguous"])
-        print(f"\t is action valid = {is_action_valid}")
-        if not is_action_valid:
-            print(f"\t\t reason = {info['exception']}")
-        print("\n")
-
-    print("###########")
-    print("# SUMMARY #")
-    print("###########")
-    print(f"return = {curr_return}")
-    print(f"total steps = {curr_step}")
-    print("###########")
-    '''
 
 if __name__ == "__main__":
     main()

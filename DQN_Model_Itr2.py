@@ -75,6 +75,17 @@ class Gym2OpEnv(gym.Env):
 
     def setup_observations(self):
         obs = self._gym_env.observation_space
+
+        keys_to_keep = ['load_p', 'load_q', 'load_theta', 'load_v', 'gen_p', 
+        'gen_q', 'gen_theta', 'gen_v','timestep_overflow','p_or', 'q_or', 'v_or', 'a_or', 'theta_or',
+        'p_ex', 'q_ex', 'v_ex', 'a_ex', 'theta_ex']
+
+        for key in list(obs.keys()):  # Use list() to avoid modifying the dictionary while iterating
+            if key not in keys_to_keep:
+                del obs[key]
+
+        '''
+        filtered_obs = spaces.Dict()
         
         load_p = obs['load_p']  # Load active power
         load_q = obs['load_q']
@@ -100,14 +111,15 @@ class Gym2OpEnv(gym.Env):
         a_ex = obs['a_ex']
         theta_ex = obs['theta_ex']
 
-        keys_to_keep = ["load_p", "load_q"]
+        # keys_to_keep = ["load_p", "load_q"]
 
-        filtered_observation_space = OrderedDict([(key, obs.spaces[key])
-            for key in keys_to_keep if key in obs.spaces])
+        # filtered_observation_space = OrderedDict([(key, obs.spaces[key])
+        #     for key in keys_to_keep if key in obs.spaces])
 
-
-        self._gym_env.observation_space = filtered_observation_space
-        
+        filtered_obs['load_p'] = obs['load_p']
+        filtered_obs['load_q'] = obs['load_q']
+        '''
+        self._gym_env.observation_space = obs      
 
     def setup_actions(self):
         # TODO: Your code to specify & modify the action space goes here
@@ -151,7 +163,6 @@ class Gym2OpEnv(gym.Env):
         return self._gym_env.reset(seed=seed, options=None)
 
     def step(self, action):
-        # Step in the original environment
         obs, reward, terminated, truncated, info = self._gym_env.step(action)
 
         # Extract observation fields (based on your observation format)
@@ -177,11 +188,11 @@ class Gym2OpEnv(gym.Env):
         gen_penalty = 0
         for gen_output in gen.flatten():
             if gen_output < 0:
-                gen_penalty -= 1  # Normalize based on max output
+                gen_penalty -= 0.1 # Normalize based on max output
             elif gen_output < 10:  # Low power penalty
-                gen_penalty -= 0.5  # Small fixed penalty
+                gen_penalty -= 0.05  # Small fixed penalty
             elif gen_output > 70:  # High power penalty
-                gen_penalty -= 1  # Small fixed penalty
+                gen_penalty -= 0.1  # Small fixed penalty
 
         ##############################
         # Normalized Load Balance Reward
@@ -190,9 +201,9 @@ class Gym2OpEnv(gym.Env):
         load_balance_reward = 0
         load_diff = np.abs(load.sum() - gen.sum())
         if load_diff < 200:  # Reward if generation closely matches the load
-            load_balance_reward += 2  # Normalize reward to 1
+            load_balance_reward += 0.4  # Normalize reward to 1
         else:
-            load_balance_reward -= 1  # Normalize penalty
+            load_balance_reward -= 0.1  # Normalize penalty
 
         ##############################
         # Normalized Overflow Penalty
@@ -202,9 +213,9 @@ class Gym2OpEnv(gym.Env):
         timestep_overflow = obs['timestep_overflow']
         for overflow in timestep_overflow.flatten():
             if overflow > 0:
-                overflow_penalty -= 1  # Normalize by the number of lines
+                overflow_penalty -= 0.1  # Normalize by the number of lines
             else:
-                overflow_penalty += 2 
+                overflow_penalty += 0.4 
 
         ##############################
         # Normalized Origin-Extremity Balance Reward
@@ -228,9 +239,9 @@ class Gym2OpEnv(gym.Env):
         or_ex_balance_reward = 0
         or_ex_diff = np.abs(origin.sum() - extremity.sum())
         if or_ex_diff < 10:  # Reward if the balance is maintained
-            or_ex_balance_reward += 2.0  # Normalized reward for balance
+            or_ex_balance_reward += 0.4  # Normalized reward for balance
         else:
-            or_ex_balance_reward -= 1
+            or_ex_balance_reward -= 0.1
 
         ##############################
         # Combined Reward
@@ -273,7 +284,7 @@ def main():
 
     obs = env.reset()
     
-    total_timesteps = 300
+    total_timesteps = 600
 
     print("Training")
     # Train the model
