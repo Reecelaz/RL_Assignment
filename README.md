@@ -1,3 +1,8 @@
+Authors:
+
+Reece Lazarus
+Kaylyn Karuppen
+
 Files to run:
 
 -DQN_Model_baseline.py
