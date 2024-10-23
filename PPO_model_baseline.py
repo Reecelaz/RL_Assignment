@@ -144,6 +144,7 @@ def main():
     episodes = 100 # Number of episodes model will be evaluated over
     rewards_per_episode = []
     curr_step = 0
+    total_rewards = 0
 
     for i in range(episodes):
         model = PPO.load("ppo_model", env=env)
@@ -159,6 +160,7 @@ def main():
             obs, reward, is_done, info = env.step(action) # Take action selected and get reward
             curr_step += 1 # Increment number of steps taken throughout all episodes
             curr_return += reward # Add reward for current action to return for this episode
+            total_rewards += reward # Update total reward
 
             if is_done:
                 rewards_per_episode.append(curr_return)
@@ -167,6 +169,7 @@ def main():
                 break
 
             #env.render()
+    average_return  = total_rewards / episodes
 
     # Plotting the average return per episode
     plt.plot(range(episodes), rewards_per_episode, label='Average Return')  # Correcting plot arguments
@@ -183,6 +186,7 @@ def main():
     print("###########")
     print(f"return = {curr_return}")
     print(f"total steps = {curr_step}")
+    print(f"average return = {average_return}")
     print("###########")
 
 if __name__ == "__main__":

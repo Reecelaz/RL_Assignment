@@ -16,7 +16,7 @@ from grid2op.Reward import L2RPNReward, N1Reward, CombinedScaledReward
 from lightsim2grid import LightSimBackend
 
 from matplotlib import pyplot as plt
-from stable_baselines3 import DQN
+from stable_baselines3 import PPO
 import numpy as np
 from gymnasium import spaces
 
@@ -116,7 +116,7 @@ class Gym2OpEnv(gym.Env):
         filtered_obs['load_p'] = obs['load_p']
         filtered_obs['load_q'] = obs['load_q']
         '''
-        self._gym_env.observation_space = obs
+        self._gym_env.observation_space = obs 
         
 
     def setup_actions(self):
@@ -218,9 +218,7 @@ class Gym2OpEnv(gym.Env):
         return obs, shaped_reward, terminated, truncated, info
 
     def render(self):
-        # TODO: Modify for your own required usage
         return self._gym_env.render()
-
 
 def main():
 
@@ -240,32 +238,31 @@ def main():
     print(env.action_space)
     print("#####################\n\n")
 
-    # DQN Algorithm #
+    # PPO Algorithm #
 
-    # Initialize the DQN model
-    buffer_size = 10000
-
-    model = DQN("MultiInputPolicy", env, verbose=0, buffer_size=buffer_size)
+    # Initialize the PPO model
+    model = PPO("MultiInputPolicy", env, verbose=0)
 
     obs = env.reset()
     
     total_timesteps = 300 # Train for this number of timesteps
-
+    
     print("Training")
-    # Train the model
-    with tf.device('/device:GPU:1'):
+    # Train PPO model
+    with tf.device('/device:GPU:1'): # Attempt using GPU in training
         model.learn(total_timesteps=total_timesteps)
 
-    model.save("dqn_model")    
+    model.save("ppo_model") # Save model
     
-    episodes = 100
+    episodes = 100 # Number of episodes model will be evaluated over
     rewards_per_episode = []
+    curr_step = 0
+    total_rewards = 0
 
     for i in range(episodes):
-        model = DQN.load("dqn_model", env=env)
+        model = PPO.load("ppo_model", env=env)
         env = model.get_env()
 
-        curr_step = 0
         curr_return = 0
         is_done = False
 
@@ -276,6 +273,7 @@ def main():
             obs, reward, is_done, info = env.step(action) # Take action selected and get reward
             curr_step += 1 # Increment number of steps taken throughout all episodes
             curr_return += reward # Add reward for current action to return for this episode
+            total_rewards += reward # Update total reward
 
             if is_done:
                 rewards_per_episode.append(curr_return)
@@ -285,21 +283,24 @@ def main():
 
             #env.render()
 
+    average_return  = total_rewards / episodes
+
     # Plotting the average return per episode
     plt.plot(range(episodes), rewards_per_episode, label='Average Return')  # Correcting plot arguments
-    plt.title('DQN Average Return per Episode')
+    plt.title('PPO Average Return per Episode')
     plt.xlabel('Episodes')
     plt.ylabel('Average Return')
-    plt.legend()
+    plt.legend()  
     plt.grid(True)  
-    plt.savefig('dqn_baseline_return.png')
-    plt.show()  
+    plt.savefig('ppo_Itr2_return.png')
+    plt.show()
 
     print("###########")
     print("# SUMMARY #")
     print("###########")
     print(f"return = {curr_return}")
     print(f"total steps = {curr_step}")
+    print(f"average return = {average_return}")
     print("###########")
 
 if __name__ == "__main__":
